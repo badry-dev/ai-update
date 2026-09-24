@@ -1,0 +1,13 @@
+# Built binary
+/ai-update
+
+# Go test / coverage artifacts
+*.test
+*.out
+coverage.*
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

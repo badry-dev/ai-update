@@ -1,0 +1,3 @@
+# Normalize line endings (repo lives on a Windows drive under WSL)
+* text=auto eol=lf
+go.sum linguist-generated=true
