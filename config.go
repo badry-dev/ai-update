@@ -61,7 +61,7 @@ tools:
   - name: gh
     binary: gh
     version_cmd: gh --version
-    update_cmd: sudo -n apt-get update -qq && sudo -n apt-get install --only-upgrade -y gh
+    update_cmd: sudo -n apt-get update -qq || echo "apt-get update had errors (see above), trying the install anyway"; sudo -n apt-get install --only-upgrade -y gh
     needs_sudo: true
 `
 
