@@ -222,11 +222,7 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case scRun, scDone:
 		switch k.String() {
-		case "q", "esc":
-			if m.screen == scDone {
-				return m, tea.Quit
-			}
-		case "enter":
+		case "q":
 			if m.screen == scDone {
 				return m, tea.Quit
 			}
