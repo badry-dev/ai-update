@@ -95,6 +95,7 @@ Options:
 Keys:
   select screen  ↑/↓ move · space toggle · a all/none · enter start · q quit
   run screen     ↑/↓ view a tool's output · pgup/pgdn scroll · f follow · ctrl+c abort
+  done screen    session art and stats · ↑/↓ inspect a tool · f session · q quit
 
 Logs are written to %s
 Exit status is 1 if any update failed or the run was aborted, 2 on bad usage.
