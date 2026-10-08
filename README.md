@@ -16,6 +16,7 @@ ai-update --config FILE   # use a different config
   - Linux and WSL: `~/.local/state/ai-update/<timestamp>.log` (`$XDG_STATE_HOME`)
   - Windows: `%LocalAppData%\ai-update\<timestamp>.log`
 - **Keys:** space toggle · `a` all/none · enter start · ↑/↓ choose which tool's output to view · pgup/pgdn scroll · `f` follow the running tool · ctrl+c abort (kills the running update and the processes it started).
+- **Completed runs:** open a session poster with result counts and the log path. ↑/↓ opens a tool's output, including a single-tool run; `f` returns to the session, pgup/pgdn scroll, and `q` quits. Short terminals use compact artwork or show statistics first.
 - Exits 1 if any update failed or the run was aborted.
 
 The first run writes a default config for the OS you are on. A Linux config that calls `apt-get`, `snap`, or `sudo` will not work in Windows PowerShell; edit the Windows file instead of copying it across.

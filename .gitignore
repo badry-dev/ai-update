@@ -11,3 +11,4 @@ coverage.*
 .vscode/
 *.swp
 .DS_Store
+ai-update.exe

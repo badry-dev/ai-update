@@ -58,12 +58,13 @@ type model struct {
 	cancel context.CancelFunc
 	log    *runLog
 
-	jobs    []*job // detected tools
-	missing []string
-	run     []int // indices of jobs selected for this run
-	current int   // index into jobs of the running job, -1 if none
-	cursor  int   // select screen: index into jobs; run screen: index into run
-	follow  bool  // output pane tracks the running job
+	jobs        []*job // detected tools
+	missing     []string
+	run         []int // indices of jobs selected for this run
+	current     int   // index into jobs of the running job, -1 if none
+	cursor      int   // select screen: index into jobs; run screen: index into run
+	follow      bool  // output pane tracks the running job
+	showSession bool  // done screen: output pane is the name art and session stats
 
 	screen  screen
 	spin    spinner.Model
@@ -183,6 +184,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleKey applies the controls for selecting, running, and inspecting tools.
 func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		m.aborted = true
@@ -220,25 +222,20 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case scRun, scDone:
 		switch k.String() {
-		case "q", "esc":
-			if m.screen == scDone {
-				return m, tea.Quit
-			}
-		case "enter":
+		case "q":
 			if m.screen == scDone {
 				return m, tea.Quit
 			}
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-				m.onCursorMove()
-			}
+			m.moveCursor(-1)
 		case "down", "j":
-			if m.cursor < len(m.run)-1 {
-				m.cursor++
-				m.onCursorMove()
-			}
+			m.moveCursor(1)
 		case "f":
+			if m.screen == scDone {
+				m.showSession = true
+				m.layout()
+				return m, nil
+			}
 			m.follow = true
 			m.onCursorMove()
 		default:
@@ -272,6 +269,7 @@ func (m model) beginRun() (tea.Model, tea.Cmd) {
 	return m, m.startNext()
 }
 
+// startNext starts the next queued job or opens the completed session poster.
 func (m *model) startNext() tea.Cmd {
 	for pos, i := range m.run {
 		j := m.jobs[i]
@@ -286,10 +284,29 @@ func (m *model) startNext() tea.Cmd {
 		return runJob(m.ctx, prog, m.log, i, j.tool)
 	}
 	m.screen = scDone
+	m.showSession = true
 	m.elapsed = time.Since(m.started)
 	m.cancel() // stops the sudo keepalive
 	m.layout()
 	return nil
+}
+
+// moveCursor steps through the run list. On the done screen the first move
+// also leaves the session poster so a single tool can still be inspected.
+func (m *model) moveCursor(delta int) {
+	next := m.cursor + delta
+	moved := next >= 0 && next < len(m.run)
+	if moved {
+		m.cursor = next
+	}
+	if m.screen == scDone && m.showSession {
+		m.showSession = false
+		m.layout()
+		return
+	}
+	if moved {
+		m.onCursorMove()
+	}
 }
 
 func (m *model) onCursorMove() {
@@ -306,7 +323,13 @@ func (m model) shownJob() int {
 	return m.run[m.cursor]
 }
 
+// refreshOutput displays the session or selected log while preserving follow mode.
 func (m *model) refreshOutput() {
+	if m.showSession && m.screen == scDone {
+		m.vp.SetContent(m.sessionPoster())
+		m.vp.GotoTop()
+		return
+	}
 	idx := m.shownJob()
 	if idx < 0 {
 		return
@@ -328,7 +351,7 @@ func (m *model) layout() {
 		return
 	}
 	used := 1 + 1 + len(m.run) + 1 + 2 + 1 + 1 // title, gap, rows, gap, box border, box title, help
-	if m.screen == scDone {
+	if m.screen == scDone && !m.showSession {
 		used += 2
 	}
 	m.vp.Width = max(20, m.w-4)
@@ -379,6 +402,7 @@ func (m model) viewSelect() string {
 	return b.String()
 }
 
+// viewRun renders job statuses, the selected output pane, and screen controls.
 func (m model) viewRun() string {
 	var b strings.Builder
 	done := 0
@@ -409,13 +433,18 @@ func (m model) viewRun() string {
 		fmt.Fprintf(&b, "%s%s %s  %s %7s  %s\n", cur, icon, name, pad(versions(j), 24), dur, detail)
 	}
 
-	if m.screen == scDone {
+	if m.screen == scDone && !m.showSession {
 		b.WriteString("\n" + m.summary() + "\n")
 	}
 
 	shown := m.jobs[m.run[m.cursor]]
 	label := " " + shown.tool.Name + " output "
-	if !m.follow && m.current >= 0 {
+	switch {
+	case m.screen == scDone && m.showSession:
+		label = " session "
+	case m.screen == scDone:
+		label += mutedSt.Render("(f: session) ")
+	case !m.follow && m.current >= 0:
 		label += mutedSt.Render("(f: follow running) ")
 	}
 	box := boxSt.Width(m.w - 2).Render(m.vp.View())
@@ -432,7 +461,10 @@ func (m model) viewRun() string {
 
 	help := "↑/↓ select tool · pgup/pgdn scroll · ctrl+c abort"
 	if m.screen == scDone {
-		help = "↑/↓ inspect output · q quit"
+		help = "↑/↓ inspect output · pgup/pgdn scroll · q quit"
+		if !m.showSession {
+			help = "↑/↓ inspect output · pgup/pgdn scroll · f session · q quit"
+		}
 	}
 	b.WriteString(mutedSt.Render(help))
 	return b.String()
