@@ -184,6 +184,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleKey applies the controls for selecting, running, and inspecting tools.
 func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		m.aborted = true
@@ -272,6 +273,7 @@ func (m model) beginRun() (tea.Model, tea.Cmd) {
 	return m, m.startNext()
 }
 
+// startNext starts the next queued job or opens the completed session poster.
 func (m *model) startNext() tea.Cmd {
 	for pos, i := range m.run {
 		j := m.jobs[i]
@@ -325,6 +327,7 @@ func (m model) shownJob() int {
 	return m.run[m.cursor]
 }
 
+// refreshOutput displays the session or selected log while preserving follow mode.
 func (m *model) refreshOutput() {
 	if m.showSession && m.screen == scDone {
 		m.vp.SetContent(m.sessionPoster())
@@ -403,6 +406,7 @@ func (m model) viewSelect() string {
 	return b.String()
 }
 
+// viewRun renders job statuses, the selected output pane, and screen controls.
 func (m model) viewRun() string {
 	var b strings.Builder
 	done := 0
@@ -442,10 +446,10 @@ func (m model) viewRun() string {
 	switch {
 	case m.screen == scDone && m.showSession:
 		label = " session "
-	case !m.follow && m.current >= 0:
-		label += mutedSt.Render("(f: follow running) ")
 	case m.screen == scDone:
 		label += mutedSt.Render("(f: session) ")
+	case !m.follow && m.current >= 0:
+		label += mutedSt.Render("(f: follow running) ")
 	}
 	box := boxSt.Width(m.w - 2).Render(m.vp.View())
 	// Put the label into the top border line.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// TestWideBannerAligned keeps the gradient artwork rectangular on every host.
 func TestWideBannerAligned(t *testing.T) {
 	if len(wideBanner) != 10 {
 		t.Fatalf("banner lines: got %d, want 10", len(wideBanner))
@@ -33,6 +36,7 @@ func TestWideBannerAligned(t *testing.T) {
 	}
 }
 
+// TestGradientSamplesEnds checks palette endpoints and an interpolated color.
 func TestGradientSamplesEnds(t *testing.T) {
 	if got := sampleRGB(darkStops, 0); got != darkStops[0] {
 		t.Fatalf("t=0: got %v", got)
@@ -46,9 +50,12 @@ func TestGradientSamplesEnds(t *testing.T) {
 	}
 }
 
+// TestSessionPosterStats checks the tall poster's statistics and aligned labels.
 func TestSessionPosterStats(t *testing.T) {
 	m := newModel(nil, nil, &runLog{path: "/tmp/session.log"})
+	t.Cleanup(m.cancel)
 	m.vp.Width = 80
+	m.vp.Height = 30
 	m.elapsed = 65 * time.Second
 	m.jobs = []*job{
 		{tool: Tool{Name: "claude"}, status: stUpdated, dur: 2 * time.Second},
@@ -77,8 +84,9 @@ func TestSessionPosterStats(t *testing.T) {
 	}
 }
 
+// labelColumn finds a statistics label in the rendered terminal text.
 func labelColumn(plain, label string) int {
-	for _, line := range strings.Split(plain, "\n") {
+	for line := range strings.SplitSeq(plain, "\n") {
 		if i := strings.Index(line, label+"  "); i >= 0 {
 			return i
 		}
@@ -86,8 +94,10 @@ func labelColumn(plain, label string) int {
 	return -1
 }
 
+// TestSessionPosterNarrow checks the wordmark used when full artwork is too wide.
 func TestSessionPosterNarrow(t *testing.T) {
 	m := newModel(nil, nil, &runLog{path: "/tmp/session.log"})
+	t.Cleanup(m.cancel)
 	m.vp.Width = 30
 	m.elapsed = time.Second
 	m.run = []int{}
@@ -98,8 +108,10 @@ func TestSessionPosterNarrow(t *testing.T) {
 	}
 }
 
+// TestSingleToolSessionOpensLog checks inspection even at a one-tool list boundary.
 func TestSingleToolSessionOpensLog(t *testing.T) {
 	m := newModel([]Tool{{Name: "claude"}}, nil, &runLog{path: "/tmp/session.log"})
+	t.Cleanup(m.cancel)
 	m.jobs[0].status = stUpdated
 	m.jobs[0].lines = []string{"claude log line"}
 	m.jobs[0].dur = time.Second
@@ -119,12 +131,14 @@ func TestSingleToolSessionOpensLog(t *testing.T) {
 	}
 }
 
+// TestDoneShowsSessionUntilInspect checks poster, tool inspection, and f navigation.
 func TestDoneShowsSessionUntilInspect(t *testing.T) {
 	m := newModel(
 		[]Tool{{Name: "claude"}, {Name: "codex"}},
 		nil,
 		&runLog{path: "/tmp/session.log"},
 	)
+	t.Cleanup(m.cancel)
 	m.jobs[0].status = stUpdated
 	m.jobs[0].lines = []string{"claude log line"}
 	m.jobs[0].dur = time.Second
@@ -169,5 +183,82 @@ func TestDoneShowsSessionUntilInspect(t *testing.T) {
 	plain = ansiRe.ReplaceAllString(m.vp.View(), "")
 	if strings.Contains(plain, "claude log line") {
 		t.Fatalf("session poster still showed the tool log:\n%s", plain)
+	}
+}
+
+// TestSessionPosterFitsHeight keeps result counts visible before any scrolling.
+func TestSessionPosterFitsHeight(t *testing.T) {
+	for _, height := range []int{24, 16} {
+		t.Run(fmt.Sprintf("80x%d", height), func(t *testing.T) {
+			m := newModel(nil, nil, nil)
+			t.Cleanup(m.cancel)
+			m.jobs = []*job{
+				{tool: Tool{Name: "claude"}, status: stUpdated},
+				{tool: Tool{Name: "codex"}, status: stCurrent},
+				{tool: Tool{Name: "gemini"}, status: stFailed},
+			}
+			m.run = []int{0, 1, 2}
+			m.w, m.h = 80, height
+			m.started = time.Now()
+			m.startNext()
+			plain := ansiRe.ReplaceAllString(m.vp.View(), "")
+			for _, label := range []string{"tools", "elapsed", "updated", "already latest", "failed"} {
+				if labelColumn(plain, label) < 0 {
+					t.Errorf("initial view hides %s:\n%s", label, plain)
+				}
+			}
+			if m.vp.YOffset != 0 {
+				t.Fatal("session did not open at the top")
+			}
+		})
+	}
+}
+
+// TestSessionPosterWrapsValues preserves long names and Windows paths when narrow.
+func TestSessionPosterWrapsValues(t *testing.T) {
+	for _, width := range []int{30, 76} {
+		t.Run(fmt.Sprintf("width%d", width), func(t *testing.T) {
+			names := []string{"a_very_long_failed_tool_name_that_must_not_be_clipped", "another_failed_tool", "工具名称"}
+			logPath := `C:\Users\example\AppData\Local\ai-update\2026-10-08_16-20-00.log`
+			m := newModel(nil, nil, &runLog{path: logPath})
+			t.Cleanup(m.cancel)
+			m.vp.Width, m.vp.Height = width, 100
+			m.screen, m.showSession = scDone, true
+			for i, name := range names {
+				m.jobs = append(m.jobs, &job{tool: Tool{Name: name}, status: stFailed})
+				m.run = append(m.run, i)
+			}
+			m.refreshOutput()
+			plain := ansiRe.ReplaceAllString(m.vp.View(), "")
+			for line := range strings.SplitSeq(plain, "\n") {
+				if got := lipgloss.Width(line); got > width {
+					t.Errorf("line width %d exceeds %d: %q", got, width, line)
+				}
+			}
+			unwrapped := strings.Join(strings.Fields(plain), "")
+			for _, want := range append(names, logPath) {
+				if !strings.Contains(unwrapped, want) {
+					t.Errorf("viewport clipped %q:\n%s", want, plain)
+				}
+			}
+		})
+	}
+}
+
+// TestDoneToolLabelUsesSessionHint gives completed-screen controls priority.
+func TestDoneToolLabelUsesSessionHint(t *testing.T) {
+	for _, current := range []int{-1, 1} {
+		t.Run(fmt.Sprintf("current%d", current), func(t *testing.T) {
+			m := newModel([]Tool{{Name: "claude"}, {Name: "codex"}}, nil, &runLog{path: filepath.Join(t.TempDir(), "session.log")})
+			t.Cleanup(m.cancel)
+			m.run = []int{0, 1}
+			m.screen, m.current, m.follow = scDone, current, false
+			m.w, m.h = 100, 40
+			m.layout()
+			plain := ansiRe.ReplaceAllString(m.View(), "")
+			if !strings.Contains(plain, "(f: session)") || strings.Contains(plain, "follow running") {
+				t.Fatalf("completed tool label has the wrong f hint:\n%s", plain)
+			}
+		})
 	}
 }

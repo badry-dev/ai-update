@@ -82,6 +82,7 @@ func main() {
 	}
 }
 
+// usage lists platform paths and the controls for each screen.
 func usage() {
 	fmt.Fprintf(flag.CommandLine.Output(), `ai-update — update all your AI/coding CLIs in one TUI
 

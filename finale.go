@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // statRow is one labeled line in the done-screen session stats.
@@ -44,6 +45,7 @@ var (
 
 type rgb struct{ r, g, b uint8 }
 
+// mustHex parses a fixed RGB palette entry and rejects malformed constants.
 func mustHex(s string) rgb {
 	var r, g, b int
 	if _, err := fmt.Sscanf(s, "%02x%02x%02x", &r, &g, &b); err != nil {
@@ -52,10 +54,12 @@ func mustHex(s string) rgb {
 	return rgb{uint8(r), uint8(g), uint8(b)}
 }
 
+// hex formats a color for Lip Gloss without losing leading zeroes.
 func (c rgb) hex() string {
 	return fmt.Sprintf("#%02X%02X%02X", c.r, c.g, c.b)
 }
 
+// sampleRGB interpolates between palette stops, clamping at the endpoints.
 func sampleRGB(stops []rgb, t float64) rgb {
 	if t <= 0 {
 		return stops[0]
@@ -94,11 +98,7 @@ func paintBannerLine(s string, row, rows int) string {
 			t = float64(col) / float64(n-1)
 		}
 		t += (float64(row)/float64(span) - 0.5) * 0.18
-		if t < 0 {
-			t = 0
-		} else if t > 1 {
-			t = 1
-		}
+		t = min(max(t, 0), 1)
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
 			Light: sampleRGB(lightStops, t).hex(),
 			Dark:  sampleRGB(darkStops, t).hex(),
@@ -120,33 +120,43 @@ func padBlock(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-func bannerLines(width int) []string {
-	if width >= wideBannerWidth {
+// bannerLines reserves space for statistics before choosing wide or compact art.
+// Very short viewports omit the artwork so result counts appear first.
+func bannerLines(width, height, statsHeight int) []string {
+	if width >= wideBannerWidth && len(wideBanner)+1+statsHeight <= height {
 		return wideBanner
 	}
 	const name = "ai-update"
-	return []string{name, strings.Repeat("─", len(name))}
+	if 2+1+statsHeight <= height {
+		return []string{name, strings.Repeat("─", len(name))}
+	}
+	return nil
 }
 
 // sessionPoster is the done-screen output: the name, then this run's stats.
 func (m model) sessionPoster() string {
 	width := max(m.vp.Width, 1)
-	lines := bannerLines(width)
+	// Wrap before padding so long names cannot make the centered block too wide.
+	stats := padBlock(ansi.Wrap(m.sessionStats(), width, ""))
+	lines := bannerLines(width, m.vp.Height, lipgloss.Height(stats))
 	painted := make([]string, len(lines))
 	for i, line := range lines {
 		painted[i] = paintBannerLine(line, i, len(lines))
 	}
-	art := lipgloss.PlaceHorizontal(width, lipgloss.Center, strings.Join(painted, "\n"))
 	// Pad stats to a rectangle first. PlaceHorizontal centers each line on its
 	// own, which would slide a short row sideways and break the columns.
-	stats := lipgloss.PlaceHorizontal(width, lipgloss.Center, padBlock(m.sessionStats()))
-	out := art + "\n\n" + stats
+	out := lipgloss.PlaceHorizontal(width, lipgloss.Center, stats)
+	if len(lines) > 0 {
+		art := lipgloss.PlaceHorizontal(width, lipgloss.Center, strings.Join(painted, "\n"))
+		out = art + "\n\n" + out
+	}
 	if m.log != nil && m.log.path != "" {
 		out += "\n\n" + lipgloss.NewStyle().Foreground(muted).Width(width).Render("log  "+m.log.path)
 	}
 	return out
 }
 
+// sessionStats summarizes selected tools, failures, and the slowest completed job.
 func (m model) sessionStats() string {
 	var updated, current, failed int
 	var failedNames []string
