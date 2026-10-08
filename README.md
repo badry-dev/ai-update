@@ -10,7 +10,7 @@ ai-update --config FILE   # use a different config
 - **Config:** written on first run. Add a tool with `name`, `binary`, `version_cmd`, `update_cmd`, `needs_sudo`. Tools whose binary isn't on PATH are hidden.
   - Linux and WSL: `~/.config/ai-update/config.yaml` (`$XDG_CONFIG_HOME`)
   - Windows: `%AppData%\ai-update\config.yaml`
-- **Shell:** Linux and WSL run commands with `bash -c`. Windows runs them with `powershell.exe -NoProfile -NonInteractive -Command`. Stdin is closed, so commands must be non-interactive.
+- **Shell:** Linux and WSL run commands with `bash -c`. Windows runs them with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command`. The execution policy applies to the child shell so npm PowerShell shims can run without changing your saved policy. Stdin is closed, so commands must be non-interactive.
 - **Sudo:** on Linux and WSL, a selected tool with `needs_sudo: true` asks for your password once and keeps it alive until the run ends. Its command should use `sudo -n`. Windows ignores `needs_sudo`.
 - **Logs:** one file per run.
   - Linux and WSL: `~/.local/state/ai-update/<timestamp>.log` (`$XDG_STATE_HOME`)

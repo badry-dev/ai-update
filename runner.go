@@ -41,6 +41,7 @@ var (
 	ansiRe   = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[=>78]`)
 )
 
+// getVersion extracts a CLI version using the host shell with a bounded timeout.
 func getVersion(ctx context.Context, script string) string {
 	if script == "" {
 		return ""
@@ -51,6 +52,7 @@ func getVersion(ctx context.Context, script string) string {
 	return versionRe.FindString(ansiRe.ReplaceAllString(string(out), ""))
 }
 
+// fetchVersion delivers a tool's version to the TUI as a command result.
 func fetchVersion(ctx context.Context, idx int, script string) tea.Cmd {
 	return func() tea.Msg { return versionMsg{idx, getVersion(ctx, script)} }
 }
@@ -136,6 +138,7 @@ type runLog struct {
 	pending *string // last line, held back in case a \r redraw replaces it
 }
 
+// logDir locates run logs in LocalAppData on Windows or XDG state on Unix.
 func logDir() string {
 	if runtime.GOOS == "windows" {
 		dir, err := os.UserCacheDir()

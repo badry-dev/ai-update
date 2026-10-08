@@ -24,6 +24,7 @@ type Config struct {
 	Tools []Tool `yaml:"tools"`
 }
 
+// configPath locates the user's config in AppData on Windows or XDG on Unix.
 func configPath() string {
 	if runtime.GOOS == "windows" {
 		dir, err := os.UserConfigDir()

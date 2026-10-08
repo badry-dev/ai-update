@@ -250,6 +250,7 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// beginRun queues selected tools and requests sudo only on supported platforms.
 func (m model) beginRun() (tea.Model, tea.Cmd) {
 	needSudo := false
 	for i, j := range m.jobs {
@@ -347,6 +348,7 @@ func (m model) View() string {
 	return m.viewRun()
 }
 
+// viewSelect renders detected tools with the privileges each update requires.
 func (m model) viewSelect() string {
 	var b strings.Builder
 	b.WriteString(titleSt.Render("ai-update") + "  " + mutedSt.Render("choose which CLIs to update") + "\n\n")

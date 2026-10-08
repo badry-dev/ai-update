@@ -7,7 +7,7 @@ package main
 const defaultConfig = `# ai-update config — one entry per CLI, updated in this order.
 #   binary:      looked up on PATH; tools not found are hidden
 #   version_cmd: first x.y.z in its output is shown as the version
-#   update_cmd:  run with powershell -NoProfile -NonInteractive -Command, no stdin
+#   update_cmd:  run with powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command, no stdin
 #   needs_sudo:  ignored on Windows
 tools:
   - name: claude
@@ -41,5 +41,5 @@ tools:
   - name: gh
     binary: gh
     version_cmd: gh --version
-    update_cmd: "winget upgrade --id GitHub.cli -e --accept-source-agreements --accept-package-agreements --disable-interactivity; if ($LASTEXITCODE -eq -1978335189) { exit 0 }; exit $LASTEXITCODE"
+    update_cmd: "if (-not (Get-Command winget.exe -CommandType Application -ErrorAction SilentlyContinue)) { Write-Error 'winget is required to update gh'; exit 1 }; winget.exe upgrade --id GitHub.cli -e --accept-source-agreements --accept-package-agreements --disable-interactivity; if ($LASTEXITCODE -eq -1978335189) { exit 0 }; exit $LASTEXITCODE"
 `

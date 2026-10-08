@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TestConfigPath checks that configuration uses the host's per-user directory.
 func TestConfigPath(t *testing.T) {
 	got := configPath()
 	if runtime.GOOS == "windows" {
@@ -34,16 +36,14 @@ func TestConfigPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(home, ".config")
-	}
+	base := cmp.Or(os.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
 	want := filepath.Join(base, "ai-update", "config.yaml")
 	if got != want {
 		t.Fatalf("configPath() = %q, want %q", got, want)
 	}
 }
 
+// TestLogDir checks that run logs use the host's per-user state directory.
 func TestLogDir(t *testing.T) {
 	got := logDir()
 	if runtime.GOOS == "windows" {
@@ -61,16 +61,14 @@ func TestLogDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		base = filepath.Join(home, ".local", "state")
-	}
+	base := cmp.Or(os.Getenv("XDG_STATE_HOME"), filepath.Join(home, ".local", "state"))
 	want := filepath.Join(base, "ai-update")
 	if got != want {
 		t.Fatalf("logDir() = %q, want %q", got, want)
 	}
 }
 
+// TestDefaultConfigMatchesOS checks tool defaults and privileges for the host.
 func TestDefaultConfigMatchesOS(t *testing.T) {
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(defaultConfig), &cfg); err != nil {
@@ -119,6 +117,7 @@ func TestDefaultConfigMatchesOS(t *testing.T) {
 	}
 }
 
+// TestShellCmdUsesHostShell checks shell selection and non-interactive flags.
 func TestShellCmdUsesHostShell(t *testing.T) {
 	const script = "echo hi"
 	cmd := shellCmd(t.Context(), script)
@@ -136,7 +135,7 @@ func TestShellCmdUsesHostShell(t *testing.T) {
 		if !strings.EqualFold(cmd.Args[0], "powershell.exe") {
 			t.Fatalf("shell = %q, want powershell.exe", cmd.Args[0])
 		}
-		for _, flag := range []string{"-NoProfile", "-NonInteractive", "-Command"} {
+		for _, flag := range []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"} {
 			if !strings.Contains(joined, flag) {
 				t.Fatalf("missing %s:\n%s", flag, joined)
 			}
@@ -148,6 +147,7 @@ func TestShellCmdUsesHostShell(t *testing.T) {
 	}
 }
 
+// TestShellCmdKeepsExitCode checks that native command statuses reach the runner.
 func TestShellCmdKeepsExitCode(t *testing.T) {
 	script := "exit 7"
 	if runtime.GOOS == "windows" {
@@ -169,6 +169,7 @@ func TestShellCmdKeepsExitCode(t *testing.T) {
 	}
 }
 
+// TestShellCmdCancelKillsChild checks cancellation of both shell and child.
 func TestShellCmdCancelKillsChild(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	var script string
@@ -211,6 +212,7 @@ func TestShellCmdCancelKillsChild(t *testing.T) {
 	t.Fatalf("child pid %d still alive after cancel", pid)
 }
 
+// waitForPID waits for a test child to publish its PID before cancellation.
 func waitForPID(t *testing.T, path string) int {
 	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
@@ -228,6 +230,7 @@ func waitForPID(t *testing.T, path string) int {
 	return 0
 }
 
+// processAlive probes whether a test child still exists on the host.
 func processAlive(pid int) bool {
 	if runtime.GOOS == "windows" {
 		out, err := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(pid), "/NH").Output()
@@ -236,6 +239,7 @@ func processAlive(pid int) bool {
 	return exec.Command("kill", "-0", strconv.Itoa(pid)).Run() == nil
 }
 
+// TestWindowsIgnoresSudo checks that Unix privilege settings never block Windows.
 func TestWindowsIgnoresSudo(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip()
@@ -249,6 +253,7 @@ func TestWindowsIgnoresSudo(t *testing.T) {
 		UpdateCmd: "codex update",
 		NeedsSudo: true,
 	}}, nil, &runLog{path: filepath.Join(t.TempDir(), "run.log")})
+	t.Cleanup(m.cancel)
 	m.w, m.h = 100, 40
 	plain := ansiRe.ReplaceAllString(m.View(), "")
 	if strings.Contains(plain, "sudo") {
@@ -266,6 +271,7 @@ func TestWindowsIgnoresSudo(t *testing.T) {
 	jobsWG.Done() // startNext's runJob counted a command this test does not run
 }
 
+// killPID cleans up test children even when a cancellation assertion fails.
 func killPID(pid int) {
 	if pid <= 0 {
 		return

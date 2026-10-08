@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// shellCmd runs a Bash command and cancels its process group.
 func shellCmd(ctx context.Context, script string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "bash", "-c", script)
 	// Own process group so cancel kills the whole pipeline, not just bash.
@@ -19,4 +20,5 @@ func shellCmd(ctx context.Context, script string) *exec.Cmd {
 	return cmd
 }
 
+// sudoAvailable reports whether this platform uses sudo for selected tools.
 func sudoAvailable() bool { return true }
