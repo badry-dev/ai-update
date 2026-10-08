@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -77,6 +81,90 @@ func TestShellCmdRunsPowerShellShim(t *testing.T) {
 	}
 }
 
+// TestShellCmdCancelAfterShellExit checks children retaining the shell's output.
+func TestShellCmdCancelAfterShellExit(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	script := fmt.Sprintf("$p = Start-Process -FilePath ping.exe -ArgumentList '-n','60','127.0.0.1' -NoNewWindow -PassThru; Set-Content -LiteralPath '%s' -Value $p.Id; exit 0", pidFile)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	cmd := shellCmd(ctx, script)
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	cmd.WaitDelay = 10 * time.Second // Cancellation must not rely on this timeout.
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	wait := make(chan error, 1)
+	go func() { wait <- cmd.Wait() }()
+	pid := waitForPID(t, pidFile)
+	t.Cleanup(func() { killPID(pid) })
+	deadline := time.Now().Add(5 * time.Second)
+	for processAlive(cmd.Process.Pid) {
+		if time.Now().After(deadline) {
+			t.Fatal("PowerShell did not exit before cancellation")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !processAlive(pid) {
+		t.Fatal("child exited before cancellation; inherited-output case was not exercised")
+	}
+	select {
+	case err := <-wait:
+		t.Fatalf("Wait returned before cancellation while the child held output: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case <-wait:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Wait did not return promptly after cancellation")
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for processAlive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("child pid %d survived cancellation after PowerShell exited", pid)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestShellCmdStartCleanup checks job-handle cleanup when startup cannot complete.
+func TestShellCmdStartCleanup(t *testing.T) {
+	t.Run("already cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		cmd := shellCmd(ctx, "exit 0")
+		if err := cmd.Run(); !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run = %v, want context cancellation", err)
+		}
+		if cmd.job != 0 || cmd.Process != nil {
+			t.Fatal("cancelled startup retained a job handle or started a shell")
+		}
+	})
+	t.Run("missing shell", func(t *testing.T) {
+		cmd := shellCmd(t.Context(), "exit 0")
+		cmd.Path = filepath.Join(t.TempDir(), "missing-powershell.exe")
+		if err := cmd.Run(); err == nil {
+			t.Fatal("Run succeeded with a missing shell")
+		}
+		if cmd.job != 0 || cmd.Process != nil {
+			t.Fatal("failed startup retained a job handle or started a shell")
+		}
+	})
+}
+
+// TestShellCmdOutput checks containment and status preservation for stdout capture.
+func TestShellCmdOutput(t *testing.T) {
+	cmd := shellCmd(t.Context(), "Write-Output 'contained output'; cmd.exe /c exit 7")
+	out, err := cmd.Output()
+	exit, ok := errors.AsType[*exec.ExitError](err)
+	if !ok || exit.ExitCode() != 7 || strings.TrimSpace(string(out)) != "contained output" {
+		t.Fatalf("Output = %q, error = %v", out, err)
+	}
+	if cmd.job != 0 {
+		t.Fatal("completed command retained its job handle")
+	}
+}
+
 // TestWindowsGHUpdate checks missing winget and real native statuses using a stub.
 func TestWindowsGHUpdate(t *testing.T) {
 	var cfg Config
@@ -122,7 +210,7 @@ func TestWindowsGHUpdate(t *testing.T) {
 }
 
 // assertExitCode checks the real shell status and includes diagnostics on failure.
-func assertExitCode(t *testing.T, cmd *exec.Cmd, want int) {
+func assertExitCode(t *testing.T, cmd interface{ CombinedOutput() ([]byte, error) }, want int) {
 	t.Helper()
 	out, err := cmd.CombinedOutput()
 	if want == 0 {
