@@ -255,7 +255,7 @@ func (m model) beginRun() (tea.Model, tea.Cmd) {
 	for i, j := range m.jobs {
 		if j.selected {
 			m.run = append(m.run, i)
-			needSudo = needSudo || j.tool.NeedsSudo
+			needSudo = needSudo || (j.tool.NeedsSudo && sudoAvailable())
 		}
 	}
 	if len(m.run) == 0 {
@@ -365,7 +365,7 @@ func (m model) viewSelect() string {
 		}
 		ver := cmp.Or(j.before, "…")
 		sudo := ""
-		if j.tool.NeedsSudo {
+		if j.tool.NeedsSudo && sudoAvailable() {
 			sudo = lipgloss.NewStyle().Foreground(yellow).Render(" sudo")
 		}
 		fmt.Fprintf(&b, "%s%s %s  %-12s %s%s\n", cur, box, name, ver, mutedSt.Render(j.tool.UpdateCmd), sudo)

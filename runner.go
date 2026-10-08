@@ -9,9 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,23 +41,13 @@ var (
 	ansiRe   = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[=>78]`)
 )
 
-func bashCmd(ctx context.Context, script string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "bash", "-c", script)
-	// Own process group so cancel kills the whole pipeline, not just bash.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
-	// Bounds the wait if a tool leaves a background child holding the pipe open.
-	cmd.WaitDelay = 3 * time.Second
-	return cmd
-}
-
 func getVersion(ctx context.Context, script string) string {
 	if script == "" {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	out, _ := bashCmd(ctx, script).CombinedOutput()
+	out, _ := shellCmd(ctx, script).CombinedOutput()
 	return versionRe.FindString(ansiRe.ReplaceAllString(string(out), ""))
 }
 
@@ -78,7 +68,7 @@ func runJob(ctx context.Context, p *tea.Program, log *runLog, idx int, t Tool) t
 			log.line(line, replace)
 			p.Send(lineMsg{idx, line, replace})
 		}}
-		cmd := bashCmd(ctx, t.UpdateCmd)
+		cmd := shellCmd(ctx, t.UpdateCmd)
 		cmd.Stdout, cmd.Stderr = w, w // same writer => Go uses a single pipe, no interleaving races
 		err := cmd.Run()
 		w.flush()
@@ -147,6 +137,14 @@ type runLog struct {
 }
 
 func logDir() string {
+	if runtime.GOOS == "windows" {
+		dir, err := os.UserCacheDir()
+		if err != nil {
+			home, _ := os.UserHomeDir()
+			dir = filepath.Join(home, "AppData", "Local")
+		}
+		return filepath.Join(dir, "ai-update")
+	}
 	home, _ := os.UserHomeDir()
 	dir := cmp.Or(os.Getenv("XDG_STATE_HOME"), filepath.Join(home, ".local", "state"))
 	return filepath.Join(dir, "ai-update")
